@@ -114,6 +114,82 @@ def _lookup_exercise(name):
 
 
 # ---------------------------------------------------------------------------
+# Exercise store
+# ---------------------------------------------------------------------------
+
+# exercises: { exercise_code (str) -> { name, type, muscle-group, difficulty } }
+exercises = {}
+
+# prefix_count: { 3-letter prefix (str) -> count } for exercise-code generation
+prefix_count = {}
+
+
+def _generate_exercise_code(name):
+    prefix = name[:3].lower() if len(name) >= 3 else name.lower().ljust(3, "a")
+    count = prefix_count.get(prefix, 0) + 1
+    prefix_count[prefix] = count
+    return f"{prefix}{count}"
+
+
+# ---------------------------------------------------------------------------
+# 3. /exercises and /exercises/{exercise-code}
+# ---------------------------------------------------------------------------
+
+VALID_EXERCISE_FILTERS = {"type", "muscle-group", "difficulty"}
+
+
+@app.route("/exercises", methods=["POST"])
+@require_admin
+def add_exercise(caller_id, is_admin):
+    data = request.get_json(silent=True)
+    if not data or "name" not in data or not isinstance(data["name"], str):
+        return jsonify({"error": "Bad Request"}), 400
+
+    name = data["name"]
+    details, status = _lookup_exercise(name)
+    if status != 200:
+        return jsonify({"error": "Exercise not found" if status == 422 else "Bad Gateway"}), status
+
+    code = _generate_exercise_code(name)
+    exercises[code] = {"name": name, "exercise-code": code, **details}
+
+    return jsonify(exercises[code]), 201
+
+
+@app.route("/exercises", methods=["GET"])
+@require_auth
+def list_exercises(caller_id, is_admin):
+    params = request.args
+    for key in params:
+        if key not in VALID_EXERCISE_FILTERS:
+            return jsonify({"error": "Bad Request"}), 400
+
+    result = list(exercises.values())
+    for key, value in params.items():
+        result = [e for e in result if e.get(key) == value]
+
+    return jsonify(result), 200
+
+
+@app.route("/exercises/<exercise_code>", methods=["GET"])
+@require_auth
+def get_exercise(exercise_code, caller_id, is_admin):
+    exercise = exercises.get(exercise_code)
+    if exercise is None:
+        return jsonify({"error": "Not Found"}), 404
+    return jsonify(exercise), 200
+
+
+@app.route("/exercises/<exercise_code>", methods=["DELETE"])
+@require_admin
+def delete_exercise(exercise_code, caller_id, is_admin):
+    if exercise_code not in exercises:
+        return jsonify({"error": "Not Found"}), 404
+    del exercises[exercise_code]
+    return "", 204
+
+
+# ---------------------------------------------------------------------------
 # 1. /register
 # ---------------------------------------------------------------------------
 
