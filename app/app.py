@@ -89,6 +89,31 @@ def require_admin(f):
 
 
 # ---------------------------------------------------------------------------
+# API Ninjas helper
+# ---------------------------------------------------------------------------
+
+def _lookup_exercise(name):
+    response = requests.get(
+        "https://api.api-ninjas.com/v1/exercises",
+        headers={"X-Api-Key": API_NINJAS_KEY},
+        params={"name": name}
+    )
+    if response.status_code != 200:
+        return None, 502
+
+    results = response.json()
+    for exercise in results:
+        if exercise["name"].lower() == name.lower():
+            return {
+                "type": exercise["type"],
+                "muscle-group": exercise["muscle"],
+                "difficulty": exercise["difficulty"]
+            }, 200
+
+    return None, 422
+
+
+# ---------------------------------------------------------------------------
 # 1. /register
 # ---------------------------------------------------------------------------
 
