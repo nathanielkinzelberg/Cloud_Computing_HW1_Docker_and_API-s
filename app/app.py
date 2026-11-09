@@ -1,10 +1,14 @@
 import os
 import secrets
 import string
+import requests
+from dotenv import load_dotenv
 from functools import wraps
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+load_dotenv()
+API_NINJAS_KEY = os.getenv("API_NINJAS_KEY")
 
 # ---------------------------------------------------------------------------
 # In-memory stores
