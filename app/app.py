@@ -373,6 +373,18 @@ def book_schedule(user_id, exercise_code, caller_id, is_admin):
     if exercise_code not in exercises:
         return jsonify({"error": "Not Found"}), 404
 
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not set(data) <= {"date", "period"}:
+        return jsonify({"error": "Bad Request"}), 400
+    if "date" not in data or not isinstance(data["date"], str):
+        return jsonify({"error": "Bad Request"}), 400
+
+    date_str = data["date"]
+    period = data.get("period")
+    error, status = _validate_booking_input(date_str, period)
+    if error is not None:
+        return jsonify(error), status
+
     return jsonify({"error": "Not Implemented"}), 501  # booking logic: next part
 
 
