@@ -1,7 +1,9 @@
 import os
+import re
 import secrets
 import string
 import requests
+from datetime import datetime, date
 from dotenv import load_dotenv
 from functools import wraps
 from flask import Flask, request, jsonify
@@ -129,6 +131,123 @@ def _generate_exercise_code(name):
     count = prefix_count.get(prefix, 0) + 1
     prefix_count[prefix] = count
     return f"{prefix}{count}"
+
+
+# ---------------------------------------------------------------------------
+# Scheduling data model
+# ---------------------------------------------------------------------------
+
+VALID_PERIODS = ("morning", "afternoon", "evening")
+SCHEDULE_WINDOW_START = date(2026, 11, 15)
+SCHEDULE_WINDOW_END = date(2026, 12, 15)
+MAX_ACTIVE_APPOINTMENTS = 3
+
+DATE_FORMAT_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+
+# schedule_slots: { (exercise_code, date_str, period) -> user_id }
+# Global slot ledger: at most one appointment may exist per slot.
+schedule_slots = {}
+
+# user_appointments: { user_id -> { appt_id -> {appt-id, exercise-code, date, period} } }
+user_appointments = {}
+
+# _next_appt_id: { user_id -> next id } — appt-ids are per-user, start at 1,
+# and are never reused so a deleted appointment's id stays dead.
+_next_appt_id = {}
+
+
+def _parse_date(date_str):
+    """Return a date for a strict DD/MM/YYYY string, or None if malformed."""
+    if not isinstance(date_str, str) or not DATE_FORMAT_RE.match(date_str):
+        return None
+    try:
+        return datetime.strptime(date_str, "%d/%m/%Y").date()
+    except ValueError:
+        return None
+
+
+def _validate_booking_input(date_str, period):
+    """Validate date + period syntax/semantics.
+
+    Returns (None, None) when valid, otherwise (error_body, status):
+      400 — malformed date or unrecognised period value
+      422 — well-formed date outside the booking window
+    """
+    parsed = _parse_date(date_str)
+    if parsed is None:
+        return {"error": "Bad Request"}, 400
+    if period is not None and period not in VALID_PERIODS:
+        return {"error": "Bad Request"}, 400
+    if not (SCHEDULE_WINDOW_START <= parsed <= SCHEDULE_WINDOW_END):
+        return {"error": "Date outside booking window"}, 422
+    return None, None
+
+
+def _find_booking_conflict(user_id, exercise_code, date_str, period, ignore_appt_id=None):
+    """Apply the three scheduling rules for a candidate (user, exercise, date, period).
+
+    Returns an error string when the booking must be rejected (always a 422),
+    or None when the slot can be booked. `ignore_appt_id` lets PUT exclude the
+    appointment being replaced from the checks.
+    """
+    # Rule 1 — global slot: one appointment per (exercise, date, period)
+    holder = schedule_slots.get((exercise_code, date_str, period))
+    if holder is not None:
+        appts = user_appointments.get(holder, {})
+        held_by_ignored = any(
+            aid == ignore_appt_id
+            and a["exercise-code"] == exercise_code
+            and a["date"] == date_str
+            and a["period"] == period
+            for aid, a in appts.items()
+        ) if holder == user_id else False
+        if not held_by_ignored:
+            return "slot taken"
+
+    # Rule 2 — one exercise per user per date+period
+    for aid, appt in user_appointments.get(user_id, {}).items():
+        if aid == ignore_appt_id:
+            continue
+        if appt["date"] == date_str and appt["period"] == period:
+            return "user already booked in this period"
+
+    # Rule 3 — at most 3 active appointments per user
+    active = user_appointments.get(user_id, {})
+    count = len(active) - (1 if ignore_appt_id in active else 0)
+    if count >= MAX_ACTIVE_APPOINTMENTS:
+        return "appointment limit reached"
+
+    return None
+
+
+def _book_appointment(user_id, exercise_code, date_str, period, appt_id=None):
+    """Record an appointment in both stores and return its record.
+
+    Assumes validation and conflict checks already passed. When `appt_id` is
+    given (PUT rebooking) it is reused; otherwise the next per-user id is drawn.
+    """
+    if appt_id is None:
+        appt_id = _next_appt_id.get(user_id, 1)
+        _next_appt_id[user_id] = appt_id + 1
+
+    record = {
+        "appt-id": appt_id,
+        "exercise-code": exercise_code,
+        "date": date_str,
+        "period": period,
+    }
+    user_appointments.setdefault(user_id, {})[appt_id] = record
+    schedule_slots[(exercise_code, date_str, period)] = user_id
+    return record
+
+
+def _cancel_appointment(user_id, appt_id):
+    """Remove an appointment from both stores; return it, or None if absent."""
+    appt = user_appointments.get(user_id, {}).pop(appt_id, None)
+    if appt is None:
+        return None
+    schedule_slots.pop((appt["exercise-code"], appt["date"], appt["period"]), None)
+    return appt
 
 
 # ---------------------------------------------------------------------------
