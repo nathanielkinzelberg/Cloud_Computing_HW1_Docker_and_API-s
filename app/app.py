@@ -385,7 +385,21 @@ def book_schedule(user_id, exercise_code, caller_id, is_admin):
     if error is not None:
         return jsonify(error), status
 
-    return jsonify({"error": "Not Implemented"}), 501  # booking logic: next part
+    if period is None:
+        return jsonify({"error": "Not Implemented"}), 501  # auto-pick: next part
+
+    if _find_booking_conflict(user_id, exercise_code, date_str, period) is not None:
+        return jsonify({"availability": False, "appt-id": 0}), 422
+
+    record = _book_appointment(user_id, exercise_code, date_str, period)
+    return jsonify({
+        "appt-id": record["appt-id"],
+        "user-id": user_id,
+        "availability": True,
+        "exercise-code": exercise_code,
+        "date": date_str,
+        "period": period,
+    }), 201
 
 
 # ---------------------------------------------------------------------------
