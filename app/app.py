@@ -362,6 +362,21 @@ def validate(user_id):
 
 
 # ---------------------------------------------------------------------------
+# 4. /schedule/{user-id}/{exercise-code}
+# ---------------------------------------------------------------------------
+
+@app.route("/schedule/<int:user_id>/<exercise_code>", methods=["POST"])
+@require_auth
+def book_schedule(user_id, exercise_code, caller_id, is_admin):
+    if caller_id != user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    if exercise_code not in exercises:
+        return jsonify({"error": "Not Found"}), 404
+
+    return jsonify({"error": "Not Implemented"}), 501  # booking logic: next part
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
