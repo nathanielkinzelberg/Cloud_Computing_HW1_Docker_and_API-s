@@ -42,6 +42,26 @@ _bootstrap_admin()
 
 
 # ---------------------------------------------------------------------------
+# JSON error handlers — Flask's defaults return HTML pages; the spec requires
+# every response, including errors, to be JSON.
+# ---------------------------------------------------------------------------
+
+@app.errorhandler(404)
+def handle_404(e):
+    return jsonify({"error": "Not Found"}), 404
+
+
+@app.errorhandler(405)
+def handle_405(e):
+    return jsonify({"error": "Method Not Allowed"}), 405
+
+
+@app.errorhandler(500)
+def handle_500(e):
+    return jsonify({"error": "Internal Server Error"}), 500
+
+
+# ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
 
@@ -261,7 +281,8 @@ VALID_EXERCISE_FILTERS = {"type", "muscle-group", "difficulty"}
 @require_admin
 def add_exercise(caller_id, is_admin):
     data = request.get_json(silent=True)
-    if not data or "name" not in data or not isinstance(data["name"], str):
+    if (not isinstance(data, dict) or set(data) != {"name"}
+            or not isinstance(data["name"], str)):
         return jsonify({"error": "Bad Request"}), 400
 
     name = data["name"]
@@ -315,7 +336,8 @@ def delete_exercise(exercise_code, caller_id, is_admin):
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json(silent=True)
-    if not data or "name" not in data or not isinstance(data["name"], str):
+    if (not isinstance(data, dict) or set(data) != {"name"}
+            or not isinstance(data["name"], str)):
         return jsonify({"error": "Bad Request"}), 400
 
     name = data["name"]
@@ -351,7 +373,8 @@ def list_users(caller_id, is_admin):
 @app.route("/validate/<int:user_id>", methods=["POST"])
 def validate(user_id):
     data = request.get_json(silent=True)
-    if not data or "API-key" not in data or not isinstance(data["API-key"], str):
+    if (not isinstance(data, dict) or set(data) != {"API-key"}
+            or not isinstance(data["API-key"], str)):
         return jsonify({"error": "Bad Request"}), 400
 
     user = users.get(user_id)
