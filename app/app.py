@@ -409,6 +409,87 @@ def book_schedule(user_id, exercise_code, caller_id, is_admin):
 
 
 # ---------------------------------------------------------------------------
+# 5. /schedule/{user-id}/{appt-id}
+# ---------------------------------------------------------------------------
+
+@app.route("/schedule/<int:user_id>/<int:appt_id>", methods=["GET"])
+@require_auth
+def get_appointment(user_id, appt_id, caller_id, is_admin):
+    if caller_id != user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    appt = user_appointments.get(user_id, {}).get(appt_id)
+    if appt is None:
+        return jsonify({"error": "Not Found"}), 404
+    return jsonify({
+        "appt-id": appt["appt-id"],
+        "user-id": user_id,
+        "exercise-code": appt["exercise-code"],
+        "date": appt["date"],
+        "period": appt["period"],
+    }), 200
+
+
+@app.route("/schedule/<int:user_id>/<int:appt_id>", methods=["PUT"])
+@require_auth
+def update_appointment(user_id, appt_id, caller_id, is_admin):
+    if caller_id != user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    appt = user_appointments.get(user_id, {}).get(appt_id)
+    if appt is None:
+        return jsonify({"error": "Not Found"}), 404
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not set(data) <= {"date", "period"}:
+        return jsonify({"error": "Bad Request"}), 400
+    if "date" not in data or not isinstance(data["date"], str):
+        return jsonify({"error": "Bad Request"}), 400
+
+    date_str = data["date"]
+    period = data.get("period")
+    error, status = _validate_booking_input(date_str, period)
+    if error is not None:
+        return jsonify(error), status
+
+    exercise_code = appt["exercise-code"]
+
+    if period is None:
+        period = next(
+            (p for p in VALID_PERIODS
+             if _find_booking_conflict(user_id, exercise_code, date_str, p,
+                                       ignore_appt_id=appt_id) is None),
+            None,
+        )
+        if period is None:
+            return jsonify({"availability": False, "appt-id": 0}), 422
+    elif _find_booking_conflict(user_id, exercise_code, date_str, period,
+                                ignore_appt_id=appt_id) is not None:
+        return jsonify({"availability": False, "appt-id": 0}), 422
+
+    # Conflict checks passed — only now is it safe to drop the old booking.
+    _cancel_appointment(user_id, appt_id)
+    record = _book_appointment(user_id, exercise_code, date_str, period,
+                               appt_id=appt_id)
+    return jsonify({
+        "appt-id": record["appt-id"],
+        "user-id": user_id,
+        "availability": True,
+        "exercise-code": exercise_code,
+        "date": date_str,
+        "period": period,
+    }), 200
+
+
+@app.route("/schedule/<int:user_id>/<int:appt_id>", methods=["DELETE"])
+@require_auth
+def delete_appointment(user_id, appt_id, caller_id, is_admin):
+    if caller_id != user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    if _cancel_appointment(user_id, appt_id) is None:
+        return jsonify({"error": "Not Found"}), 404
+    return "", 204
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
