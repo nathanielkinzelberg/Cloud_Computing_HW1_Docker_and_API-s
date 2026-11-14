@@ -490,6 +490,40 @@ def delete_appointment(user_id, appt_id, caller_id, is_admin):
 
 
 # ---------------------------------------------------------------------------
+# 6. /schedule (admin)
+# ---------------------------------------------------------------------------
+
+VALID_SCHEDULE_FILTERS = {"exercise-code"}
+
+
+@app.route("/schedule", methods=["GET"])
+@require_admin
+def list_schedule(caller_id, is_admin):
+    params = request.args
+    for key in params:
+        if key not in VALID_SCHEDULE_FILTERS:
+            return jsonify({"error": "Bad Request"}), 400
+
+    result = [
+        {
+            "exercise-code": appt["exercise-code"],
+            "appt-id": appt["appt-id"],
+            "date": appt["date"],
+            "period": appt["period"],
+            "user-id": uid,
+        }
+        for uid, appts in user_appointments.items()
+        for appt in appts.values()
+    ]
+
+    code_filter = params.get("exercise-code")
+    if code_filter is not None:
+        result = [a for a in result if a["exercise-code"] == code_filter]
+
+    return jsonify(result), 200
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
